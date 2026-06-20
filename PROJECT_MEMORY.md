@@ -25,7 +25,7 @@ y = -0.43～-0.02 m
 ```
 
 - 已用完整六目标真实 rosbag 验证：标准5 mm尺度直接识别6个稳定区域。
-- 当前核心测试：`19 passed`。
+- 当前核心测试：`22 passed`。
 - `colcon build --symlink-install --packages-select spear_locator` 已通过。
 - V1逐ID固定沿排列方向补偿已停用：`center_offset_along_m` 六项均为0；
   法向补偿继续保留。原因是旧参数过拟合首包，并在不同距离/角度将X误差放大。
@@ -35,6 +35,9 @@ y = -0.43～-0.02 m
   翻转测试`five_targets...160332`的X平均绝对误差由11.0 mm降至约6.3 mm。
 - 五目标独立复测`five_targets_0mm_r8_20260620_162610`冻结输出X为
   `[-16.13,-6.58,+3.77,+14.54,+25.46] cm`；用户确认精度满意并要求保存当前版本。
+- 新增X位置外环PID：订阅识别JSON，按目标ID将X位置误差转换为限幅速度，同时发布
+  `/cmd_vel`和`/spear_pid/speed_mps`。默认禁用，目标丢失/超时归零；鉴于识别约3秒
+  更新一次，默认最大速度0.01 m/s且每次只输出0.5秒，单轮最大位移约5 mm。
 
 ### 径向标定
 
@@ -486,6 +489,12 @@ STL-27L 标称工作电流 ≤290 mA。通用转接板若通过 USB 5V 给雷达
 | `src/spear_locator/spear_locator/temporal_recognition.py` | 已创建并验证 | 多帧空间投票、稳定区域和结构化目标选择 |
 | `src/spear_locator/spear_locator/analyze_bag.py` | 已创建并验证 | rosbag离线目标识别工具 |
 | `src/spear_locator/spear_locator/temporal_ros_node.py` | 已创建并验证 | 每30帧输出一次在线稳定识别结果 |
+| `src/spear_locator/spear_locator/position_pid.py` | 已创建并测试 | X位置误差到限幅速度的纯PID外环 |
+| `src/spear_locator/spear_locator/position_pid_node.py` | 已创建并联调 | 订阅识别JSON并发布Twist/Float64速度 |
+| `src/spear_locator/config/position_pid.yaml` | 已创建 | PID、限速、死区、方向和超时参数 |
+| `src/spear_locator/launch/position_pid.launch.py` | 已创建并验证 | 启动X位置PID节点 |
+| `src/spear_locator/test/test_position_pid.py` | 3/3 通过 | 限速、死区、积分复位和微分测试 |
+| `PID_CONTROL.md` | 已创建 | PID安全约束、启动方法和调参顺序 |
 | `src/spear_locator/config/recognition.yaml` | 已创建 | 默认固定6目标；共线与间距仅用于软评分 |
 | `src/spear_locator/rviz/recognition.rviz` | 已创建并验证 | 原始扫描、候选黄点和识别目标红圈显示 |
 | `src/spear_locator/launch/recognition_viewer.launch.py` | 已创建 | 同时启动多帧识别和识别专用RViz |
@@ -898,7 +907,8 @@ range_calibration:
 独立定位       [完成原型] 输出每个目标雷达坐标X、Y、R和排列直线
 稳定编号       [部分完成] 静态场景按自动排列轴/X递增稳定编号；运动跟踪未实现
 坐标标定       [部分完成] 径向8包标定完成；角度和外参待完成
-自动化测试     [通过] 18个算法测试通过，colcon构建通过
+自动化测试     [通过] 22个算法测试通过，colcon构建通过
+速度控制       [完成原型] X位置外环PID输出限幅速度；尚未连接实际运动机构
 现场验证       [进行中] 首组中心真值已录入；当前误差尚未达到X/Y各±5 mm
 部署交付       [原型完成] 一键分析、JSON保存、循环bag回放和RViz已可用
 ```
@@ -907,6 +917,10 @@ range_calibration:
 
 ### 2026-06-19
 
+- 2026-06-20新增X位置外环PID。订阅`/spear_recognition/result`，按目标ID和期望X
+  输出`/cmd_vel`与`/spear_pid/speed_mps`；默认禁用，识别超时归零，最大速度
+  0.01 m/s，每次新测量只保持0.5秒。模拟联调中目标X=+20 mm、期望0时正确输出
+  -0.004 m/s，并在0.5秒后归零。当前22项测试通过、ROS包构建通过；尚未接真实电机。
 - 2026-06-20冻结处理五目标独立复测`five_targets_0mm_r8_20260620_162610`，
   输出X/Y（cm）为`(-16.13,-13.63)`、`(-6.58,-14.79)`、`(+3.77,-14.67)`、
   `(+14.54,-13.42)`、`(+25.46,-13.99)`。用户确认精度满意，当前参数停止继续拟合，

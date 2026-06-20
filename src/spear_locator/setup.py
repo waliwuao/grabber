@@ -28,6 +28,7 @@ setup(
             'analyze_bag = spear_locator.analyze_bag:main',
             'exam_answer_node = spear_locator.exam_answer_node:main',
             'spear_locator_node = spear_locator.ros_node:main',
+            'spear_position_pid_node = spear_locator.position_pid_node:main',
             'spear_recognition_node = spear_locator.temporal_ros_node:main',
             'synthetic_scan_node = spear_locator.synthetic_scan_node:main',
         ],

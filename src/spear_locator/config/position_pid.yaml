@@ -1,0 +1,29 @@
+spear_position_pid:
+  ros__parameters:
+    result_topic: /spear_recognition/result
+    cmd_vel_topic: /cmd_vel
+    speed_topic: /spear_pid/speed_mps
+    status_topic: /spear_pid/status
+
+    # Track the middle target by default and hold it on LiDAR X=0.
+    target_id: 2
+    desired_x_m: 0.0
+
+    # Position outer-loop PID: position error [m] -> speed [m/s].
+    kp: 0.2
+    ki: 0.0
+    kd: 0.02
+    maximum_speed_mps: 0.01
+    integral_limit_m_s: 0.05
+    deadband_m: 0.005
+    derivative_filter: 0.7
+
+    # Change to -1.0 if positive commanded speed moves the target toward -X.
+    direction_sign: 1.0
+    # Recognition updates slowly, so issue a short bounded motion pulse.
+    command_hold_s: 0.5
+    recognition_timeout_s: 4.5
+    publish_rate_hz: 20.0
+
+    # Safety default: inspect output/status before enabling physical motion.
+    enabled: false
