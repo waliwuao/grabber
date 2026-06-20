@@ -1,0 +1,41 @@
+spear_locator:
+  ros__parameters:
+    input_topic: /scan
+
+    # Required target range is <= 0.40 m. Keep 3 cm processing margin so
+    # positive measurement noise does not discard a target at exactly 0.40 m.
+    range_min_m: 0.03
+    range_max_m: 0.43
+    # Measure on the green negative axis (-Y), with a 90-degree sector.
+    angle_min_deg: -170.0
+    angle_max_deg: -10.0
+
+    # Cartesian ROI: targets are on -Y and arranged along the red X axis.
+    x_min_m: -0.43
+    x_max_m: 0.43
+    y_min_m: -0.43
+    y_max_m: -0.02
+
+    # Correct raw STL-27L range to rotation-center/object-surface distance.
+    range_calibration_scale: 0.96370434
+    range_calibration_offset_m: -0.00795114
+    range_calibration_cos_m: -0.00072278
+    range_calibration_sin_m: -0.00192741
+    range_calibration_cos2_m: -0.00036139
+
+    # Assign IDs from -X to +X. Change ascending to false to reverse IDs.
+    id_sort_axis: x
+    id_sort_ascending: true
+
+    # Adaptive split threshold:
+    # base_gap + scale * range * angular_increment.
+    neighbor_base_gap_m: 0.015
+    neighbor_gap_scale: 3.0
+
+    # Provisional target geometry constraints. Real scans must be used to tune.
+    min_cluster_points: 2
+    max_cluster_points: 80
+    min_cluster_width_m: 0.0
+    max_cluster_width_m: 0.15
+
+    marker_scale_m: 0.06

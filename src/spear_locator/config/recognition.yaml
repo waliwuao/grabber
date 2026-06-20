@@ -1,0 +1,57 @@
+spear_recognition:
+  ros__parameters:
+    input_topic: /scan
+
+    range_min_m: 0.03
+    range_max_m: 0.43
+    # Wide near-field sector: at 50 mm placement the two outer targets lie
+    # outside the old -135..-45 degree window.
+    angle_min_deg: -170.0
+    angle_max_deg: -10.0
+    x_min_m: -0.43
+    x_max_m: 0.43
+    y_min_m: -0.43
+    y_max_m: -0.02
+
+    # 2026-06-19 radial calibration from 100/200 mm shell-surface
+    # measurements in +X, -Y, -X and +Y. Output range is from the LiDAR
+    # rotation center to the observed object surface.
+    range_calibration_scale: 0.96370434
+    range_calibration_offset_m: -0.00795114
+    range_calibration_cos_m: -0.00072278
+    range_calibration_sin_m: -0.00192741
+    range_calibration_cos2_m: -0.00036139
+
+    # The final rack always contains six approximately equally spaced targets.
+    expected_count: 6
+    window_frames: 30
+    grid_resolution_m: 0.005
+    minimum_occupancy: 0.15
+    maximum_component_span_m: 0.12
+    # Negative disables hard spacing rejection. Count and stability remain
+    # hard requirements; approximate line/spacing structure is only scored.
+    # No pairwise Y-difference limit is applied.
+    maximum_spacing_deviation_ratio: -1.0
+    # The V1 per-ID along-row offsets overfit
+    # six_targets_0mm_r1_20260619_171750 and enlarged X errors at other
+    # distances/angles, so along-row compensation is disabled. The
+    # better-performing normal offsets are retained.
+    center_offset_along_m:
+      [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    center_offset_normal_m:
+      [0.01696429, 0.01449106, 0.02197713, 0.01447321, 0.01695537, 0.01692860]
+
+    # Quadratic polar correction fitted only from valid datasets 171750,
+    # 175815 and 185117. It is enabled because the current acceptance priority
+    # is X accuracy; on frozen dataset 192111 it puts 5/6 X values within
+    # +/-10 mm. Y accuracy is currently diagnostic only.
+    # Feature order: [1, theta_norm, range_norm, theta_norm^2,
+    #                 range_norm*theta_norm, range_norm^2]
+    polar_range_coefficients_m:
+      [0.00883056907398, 0.00494075146535, -0.00461366266983,
+       -0.0000114361849171, 0.03486982091, -0.0024647133478]
+    polar_angle_coefficients_rad:
+      [0.0898957868697, 0.0668936983864, 0.037292691619,
+       -0.115131471909, -0.108171945595, -0.0783418855768]
+    marker_scale_m: 0.04
+    circle_radius_m: 0.045
