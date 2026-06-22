@@ -1,0 +1,73 @@
+{
+  "bag": "data/bags/five_targets_0mm_r8_20260620_162610/bag",
+  "frames": 194,
+  "profile": "standard",
+  "stable_component_count": 8,
+  "expected_count": 5,
+  "recognized_count": 5,
+  "arrangement_line_2d": {
+    "form": "a*x + b*y + c = 0",
+    "a": -0.006899,
+    "b": 0.999976,
+    "c": 0.141272
+  },
+  "mean_adjacent_spacing_m": 0.10397,
+  "maximum_spacing_deviation_ratio": 0.0823,
+  "targets": [
+    {
+      "id": 0,
+      "x_m": -0.1613,
+      "y_m": -0.1363,
+      "range_m": 0.2112,
+      "raw_component_x_m": -0.16,
+      "raw_component_y_m": -0.13,
+      "span_x_m": 0.035,
+      "span_y_m": 0.035,
+      "peak_occupancy": 1.0
+    },
+    {
+      "id": 1,
+      "x_m": -0.0658,
+      "y_m": -0.1479,
+      "range_m": 0.1619,
+      "raw_component_x_m": -0.065,
+      "raw_component_y_m": -0.135,
+      "span_x_m": 0.045,
+      "span_y_m": 0.03,
+      "peak_occupancy": 1.0
+    },
+    {
+      "id": 2,
+      "x_m": 0.0377,
+      "y_m": -0.1467,
+      "range_m": 0.1515,
+      "raw_component_x_m": 0.025,
+      "raw_component_y_m": -0.14,
+      "span_x_m": 0.03,
+      "span_y_m": 0.055,
+      "peak_occupancy": 1.0
+    },
+    {
+      "id": 3,
+      "x_m": 0.1454,
+      "y_m": -0.1342,
+      "range_m": 0.1978,
+      "raw_component_x_m": 0.125,
+      "raw_component_y_m": -0.14,
+      "span_x_m": 0.03,
+      "span_y_m": 0.035,
+      "peak_occupancy": 1.0
+    },
+    {
+      "id": 4,
+      "x_m": 0.2546,
+      "y_m": -0.1399,
+      "range_m": 0.2905,
+      "raw_component_x_m": 0.23,
+      "raw_component_y_m": -0.1425,
+      "span_x_m": 0.035,
+      "span_y_m": 0.03,
+      "peak_occupancy": 1.0
+    }
+  ]
+}
