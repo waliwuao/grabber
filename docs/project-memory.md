@@ -170,12 +170,12 @@ bigspace 在本次检查时约剩余 `20 GB`。
 
 - 项目名称：使用 2D 雷达获取多个矛头的独立位置
 - 工作目录：`/home/charlie/2d雷达`
-- 记忆文件：`/home/charlie/2d雷达/PROJECT_MEMORY.md`
+- 记忆文件：`docs/project-memory.md`
 - 建档日期：2026-06-18
 - 当前阶段：真实六目标识别、径向标定和一键处理流程已完成；等待用户公布独立真值并进行正式误差验收
 - 已知雷达型号：STL-27L 2D DTOF 激光雷达
 - 当前仓库状态：已有驱动、ROS 2 处理包、真实 rosbag、标定、测试、RViz、一键处理脚本和项目文档
-- Git 状态：已初始化 Git 仓库，当前分支为 `main`，尚无任何提交；`PROJECT_MEMORY.md` 当前为未跟踪文件
+- Git 状态：`main` 已推送到 `seven-teen123/2d-lidar`；代码、数据和实验媒体均已纳入版本管理
 
 ## 2. 用户原始目标
 
@@ -470,10 +470,10 @@ STL-27L 标称工作电流 ≤290 mA。通用转接板若通过 USB 5V 给雷达
 
 | 文件 | 状态 | 用途 |
 |---|---|---|
-| `PROJECT_MEMORY.md` | 已创建 | 项目长期记忆、需求、方案、进度和交接说明 |
-| `STL27L_DRIVER.md` | 已创建 | 驱动编译状态、串口配置和运行命令 |
-| `SPEAR_PROCESSING.md` | 已创建 | 矛头处理算法、ROI 原则、话题和运行方法 |
-| `data/README.md` | 已创建 | 1 m 范围、厘米级目标下的真实数据采集与真值规范 |
+| `docs/project-memory.md` | 已创建 | 项目长期记忆、需求、方案、进度和交接说明 |
+| `docs/driver.md` | 已创建 | 驱动编译状态、串口配置和运行命令 |
+| `docs/processing.md` | 已创建 | 矛头处理算法、ROI 原则、话题和运行方法 |
+| `datasets/README.md` | 已创建 | 真实数据采集、场景和真值规范 |
 | `scripts/record_scene.sh` | 已创建并通过语法检查 | 自动检查 `/scan`、定时录包并创建场景元数据 |
 | `.gitignore` | 已创建 | 忽略 colcon 构建产物 |
 | `src/ldlidar_stl_ros2/` | 已下载并本地修补 | LDROBOT 官方 STL-27L ROS 2 驱动源码 |
@@ -494,17 +494,17 @@ STL-27L 标称工作电流 ≤290 mA。通用转接板若通过 USB 5V 给雷达
 | `src/spear_locator/config/position_pid.yaml` | 已创建 | PID、限速、死区、方向和超时参数 |
 | `src/spear_locator/launch/position_pid.launch.py` | 已创建并验证 | 启动X位置PID节点 |
 | `src/spear_locator/test/test_position_pid.py` | 3/3 通过 | 限速、死区、积分复位和微分测试 |
-| `PID_CONTROL.md` | 已创建 | PID安全约束、启动方法和调参顺序 |
+| `docs/pid-control.md` | 已创建 | PID安全约束、启动方法和调参顺序 |
 | `src/spear_locator/config/recognition.yaml` | 已创建 | 默认固定6目标；共线与间距仅用于软评分 |
 | `src/spear_locator/rviz/recognition.rviz` | 已创建并验证 | 原始扫描、候选黄点和识别目标红圈显示 |
 | `src/spear_locator/launch/recognition_viewer.launch.py` | 已创建 | 同时启动多帧识别和识别专用RViz |
 | `launch/bag_recognition_viewer.launch.py` | 已创建并验证 | 指定bag循环回放、识别和RViz联合启动 |
 | `scripts/process_and_view_bag.sh` | 已创建并验证 | 最新/指定bag的一键离线分析、JSON保存和RViz回放 |
 | `scripts/open_calc.sh` | 已创建并验证 | 启动bigspace中的LibreOffice Calc |
-| `CALIBRATION_RESULTS.md` | 已创建 | 8包径向标定输入、假设、方程和残差 |
-| `EXAM_RESULT_0MM.md` | 已创建 | 正确考试包的六目标坐标和识别结果 |
-| `RECOGNITION_RESULTS.md` | 历史记录 | 主要记录2026-06-18单/双目标实验；不得替代当前考试结果 |
-| `data/data_contract.ods` | 已整理并验证 | 六目标人工真值、识别坐标及X/Y自动误差表；实际位于bigspace |
+| `docs/calibration.md` | 已创建 | 8包径向标定输入、假设、方程和残差 |
+| `docs/exam-result.md` | 已创建 | 正确考试包的六目标坐标和识别结果 |
+| `docs/recognition-results.md` | 历史记录 | 主要记录2026-06-18单/双目标实验；不得替代当前考试结果 |
+| `datasets/data_contract.ods` | 已整理并验证 | 六目标人工真值、识别坐标及X/Y自动误差表 |
 | `data` | 软链接 | 指向 `/home/charlie/bigspace/2d雷达_data` |
 | `/home/charlie/bigspace/apps/LibreOffice` | 已安装 | LibreOffice 25.8.7.3 可编辑表格 |
 | `build/` | 已生成、Git 忽略 | colcon 构建中间产物 |
@@ -517,7 +517,7 @@ STL-27L 标称工作电流 ≤290 mA。通用转接板若通过 USB 5V 给雷达
 
 ```text
 2d雷达/
-├── PROJECT_MEMORY.md
+├── docs/project-memory.md
 ├── README.md
 ├── requirements.txt
 ├── config/
@@ -771,7 +771,7 @@ range_calibration:
 }
 ```
 
-本节数值 `0.0` 只是格式占位，不是当前考试包的真实测量结果；真实结果见第0节和 `EXAM_RESULT_0MM.md`。
+本节数值 `0.0` 只是格式占位，不是当前考试包的真实测量结果；真实结果见第0节和 `docs/exam-result.md`。
 
 ## 10. 数据采集要求
 
@@ -915,6 +915,13 @@ range_calibration:
 
 ## 18. 变更日志
 
+### 2026-06-23
+
+- 将GitHub仓库根目录重新整理：项目文档统一移入`docs/`，实验图片和视频移入
+  `docs/assets/`，真实数据保留在`datasets/`，根目录仅保留项目入口README。
+- 重写仓库README，增加功能概览、系统流程、精度结果、目录结构、构建、雷达启动、
+  在线识别、离线bag处理、数据录制、PID安全使用和文档导航。
+
 ### 2026-06-19
 
 - 2026-06-20新增X位置外环PID。订阅`/spear_recognition/result`，按目标ID和期望X
@@ -1035,11 +1042,11 @@ range_calibration:
 - 下载官方 `ldlidar_stl_ros2` 到 `src/`，固定官方提交 `bf668a89baf722a787dadc442860dcbf33a82f5a`。
 - 首次 Jazzy/GCC 13 编译因厂商日志头文件未包含 `pthread.h` 失败；补充头文件并将析构时的 `pthread_mutex_unlock` 修正为 `pthread_mutex_destroy` 后编译成功。
 - 验证 ROS 包索引、节点可执行文件、动态库、STL-27L launch 解析和无硬件启动；节点正确加载 921600 baud 和 `/scan` 参数，因当前不存在 `/dev/ttyUSB0` 而按预期退出。
-- 创建 `STL27L_DRIVER.md` 和 `.gitignore`。
+- 创建 `docs/driver.md` 和 `.gitignore`。
 - 创建 `spear_locator` ROS 2 Python 包，实现可配置距离/角度/矩形 ROI、自适应分簇、点簇中心定位、单帧编号、相对位置、间距统计、PointCloud2、PoseArray、MarkerArray 和 JSON 输出。
 - 创建模拟 `/scan` 节点和 RViz 配置；端到端测试成功输出 5 个目标。
 - `colcon build --symlink-install` 成功；`colcon test` 结果为 3 tests、0 failures。
-- 创建 `SPEAR_PROCESSING.md`，记录范围设置原则、话题和运行命令。
+- 创建 `docs/processing.md`，记录范围设置原则、话题和运行命令。
 - 用户实机连接后报告雷达蓝灯闪烁、轻微稳定振动；`lsusb` 识别 `10c4:ea60 Silicon Labs CP210x UART Bridge`，设备节点为 `/dev/ttyUSB0`、所属组为 `dialout`。
 - 用户将最大目标距离更新为 0.40 m、目标误差仍为 ≤10 mm；处理 ROI 更新为 0.43 m。
 - 当前只有两个真实矛头，第一轮确定使用两个真实目标采集 150、200、250、300、350、400 mm，每个距离 3 组，共 18 组，另加空背景；不使用替代物评估真实目标精度。
