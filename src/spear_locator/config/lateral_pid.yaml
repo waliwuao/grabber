@@ -8,14 +8,14 @@ lateral_pid:
     kp: 0.2
     ki: 0.0
     kd: 0.02
-    maximum_speed_mps: 0.01
+    maximum_speed_mps: 0.1
+    minimum_speed_mps: 0.02
     integral_limit_m_s: 0.05
     deadband_m: 0.005
     derivative_filter: 0.7
 
     # Change to -1.0 if positive speed moves the target away from X=0.
     direction_sign: 1.0
-    # Recognition updates slowly, so issue a short bounded motion pulse.
+    # Duration of the single velocity pulse after each trigger [s].
     command_hold_s: 0.5
-    recognition_timeout_s: 4.5
     publish_rate_hz: 20.0
