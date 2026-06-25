@@ -1,8 +1,8 @@
-"""Trigger-based lateral one-shot PID control node.
+"""Trigger-based approach control node.
 
 Subscribes to spear recognition results, waits for a trigger service,
-picks the target whose X is closest to 0, runs one PID update and issues
-a single velocity pulse of configurable duration (command_hold_s).
+picks the target whose X is closest to 0, and drives both lateral (X→0)
+and forward (|Y|→<0.1) axes for up to approach_timeout_s seconds.
 """
 
 import json
@@ -18,7 +18,7 @@ from .position_pid import PositionPid, PositionPidConfig
 
 
 class LateralPidNode(Node):
-    """Trigger-based one-shot lateral PID controller for spear centering."""
+    """Trigger-based X/Y approach controller for spear target."""
 
     def __init__(self) -> None:
         super().__init__('lateral_pid')
@@ -31,17 +31,19 @@ class LateralPidNode(Node):
         self.declare_parameter('ki', 0.0)
         self.declare_parameter('kd', 0.02)
         self.declare_parameter('maximum_speed_mps', 0.1)
-        self.declare_parameter('minimum_speed_mps', 0.02)
+        self.declare_parameter('minimum_speed_mps', 0.03)
         self.declare_parameter('integral_limit_m_s', 0.05)
-        self.declare_parameter('deadband_m', 0.005)
+        self.declare_parameter('deadband_x_m', 0.005)
+        self.declare_parameter('deadband_y_m', 0.1)
         self.declare_parameter('derivative_filter', 0.7)
 
-        self.declare_parameter('direction_sign', 1.0)
-        self.declare_parameter('command_hold_s', 0.5)
-        self.declare_parameter('publish_rate_hz', 20.0)
+        self.declare_parameter('direction_sign_x', 1.0)
+        self.declare_parameter('direction_sign_y', 1.0)
+        self.declare_parameter('approach_timeout_s', 3.0)
+        self.declare_parameter('publish_rate_hz', 100.0)
 
-        self._pid = PositionPid(
-            PositionPidConfig(
+        def _make_config(deadband_m: float) -> PositionPidConfig:
+            return PositionPidConfig(
                 kp=float(self.get_parameter('kp').value),
                 ki=float(self.get_parameter('ki').value),
                 kd=float(self.get_parameter('kd').value),
@@ -54,22 +56,29 @@ class LateralPidNode(Node):
                 integral_limit_m_s=float(
                     self.get_parameter('integral_limit_m_s').value
                 ),
-                deadband_m=float(
-                    self.get_parameter('deadband_m').value
-                ),
+                deadband_m=deadband_m,
                 derivative_filter=float(
                     self.get_parameter('derivative_filter').value
                 ),
             )
+
+        self._pid_x = PositionPid(
+            _make_config(float(self.get_parameter('deadband_x_m').value))
+        )
+        self._pid_y = PositionPid(
+            _make_config(float(self.get_parameter('deadband_y_m').value))
         )
 
         self._state = 'idle'
-        self._target_id = None
-        self._last_x_m = None
-        self._last_error_m = None
-        self._last_command_mps = 0.0
-        self._pulse_start_time = None
-        self._latest_recognition = None
+        self._target_id: int | None = None
+        self._last_x_m: float | None = None
+        self._last_y_m: float | None = None
+        self._last_error_x_m: float | None = None
+        self._last_error_y_m: float | None = None
+        self._last_forward_mps = 0.0
+        self._last_lateral_mps = 0.0
+        self._approach_start_time: float | None = None
+        self._latest_recognition: dict | None = None
 
         self._chassis_pub = self.create_publisher(
             Float32MultiArray,
@@ -99,11 +108,12 @@ class LateralPidNode(Node):
         self._timer = self.create_timer(1.0 / rate_hz, self._publish)
 
         self.get_logger().info(
-            'Lateral PID ready (state=%s, deadband=%.4f m, hold=%.2f s)'
+            'Approach PID ready (state=%s, dx=%.4f m, dy=%.4f m, timeout=%.1f s)'
             % (
                 self._state,
-                float(self.get_parameter('deadband_m').value),
-                float(self.get_parameter('command_hold_s').value),
+                float(self.get_parameter('deadband_x_m').value),
+                float(self.get_parameter('deadband_y_m').value),
+                float(self.get_parameter('approach_timeout_s').value),
             )
         )
 
@@ -114,10 +124,21 @@ class LateralPidNode(Node):
                 'state': self._state,
                 'target_id': self._target_id,
                 'current_x_m': self._last_x_m,
-                'error_x_m': self._last_error_m,
-                'speed_mps': self._last_command_mps,
-                'deadband_m': float(
-                    self.get_parameter('deadband_m').value
+                'current_y_m': self._last_y_m,
+                'error_x_m': self._last_error_x_m,
+                'error_y_m': self._last_error_y_m,
+                'forward_mps': self._last_forward_mps,
+                'lateral_mps': self._last_lateral_mps,
+                'deadband_x_m': float(
+                    self.get_parameter('deadband_x_m').value
+                ),
+                'deadband_y_m': float(
+                    self.get_parameter('deadband_y_m').value
+                ),
+                'elapsed_s': (
+                    time.monotonic() - self._approach_start_time
+                    if self._approach_start_time is not None
+                    else 0.0
                 ),
             },
             ensure_ascii=False,
@@ -126,17 +147,21 @@ class LateralPidNode(Node):
 
     def _publish_chassis(self) -> None:
         msg = Float32MultiArray()
-        sign = float(self.get_parameter('direction_sign').value)
-        msg.data = [0.0, sign * self._last_command_mps, 0.0]
+        sx = float(self.get_parameter('direction_sign_x').value)
+        sy = float(self.get_parameter('direction_sign_y').value)
+        msg.data = [sy * self._last_forward_mps, sx * self._last_lateral_mps, 0.0]
         self._chassis_pub.publish(msg)
 
     def _reset(self) -> None:
         self._state = 'idle'
-        self._last_command_mps = 0.0
+        self._last_forward_mps = 0.0
+        self._last_lateral_mps = 0.0
         self._target_id = None
-        self._last_error_m = None
-        self._pulse_start_time = None
-        self._pid.reset()
+        self._last_error_x_m = None
+        self._last_error_y_m = None
+        self._approach_start_time = None
+        self._pid_x.reset()
+        self._pid_y.reset()
 
     def _recognition_callback(self, message: String) -> None:
         try:
@@ -145,14 +170,64 @@ class LateralPidNode(Node):
             return
         self._latest_recognition = payload
 
+        if self._state != 'approaching':
+            return
+
+        if payload.get('status') != 'recognized':
+            self.get_logger().warn('Recognition lost during approach, stopping')
+            self._reset()
+            return
+
+        target = next(
+            (
+                item for item in payload.get('targets', [])
+                if int(item.get('id', -1)) == self._target_id
+            ),
+            None,
+        )
+        if target is None or 'x_m' not in target or 'y_m' not in target:
+            self.get_logger().warn(
+                'Target %d disappeared during approach, stopping' % self._target_id
+            )
+            self._reset()
+            return
+
+        now = time.monotonic()
+        dx_m = float(target['x_m'])
+        dy_m = float(target['y_m'])
+        error_x = 0.0 - dx_m
+        error_y = 0.0 - dy_m
+
+        dt_s = 0.0
+        if self._approach_start_time is not None:
+            dt_s = now - self._approach_start_time
+        self._approach_start_time = now
+
+        forward = self._pid_y.update(error_y, dt_s)
+        lateral = self._pid_x.update(error_x, dt_s)
+
+        self._last_x_m = dx_m
+        self._last_y_m = dy_m
+        self._last_error_x_m = error_x
+        self._last_error_y_m = error_y
+        self._last_forward_mps = forward
+        self._last_lateral_mps = lateral
+
+        if forward == 0.0 and lateral == 0.0:
+            self.get_logger().info(
+                'Target %d reached (x=%.4f m, y=%.4f m)'
+                % (self._target_id, dx_m, dy_m)
+            )
+            self._state = 'success'
+
     def _trigger_callback(
         self,
         request: Trigger.Request,
         response: Trigger.Response,
     ) -> Trigger.Response:
-        if self._state == 'pulsing':
+        if self._state in ('approaching', 'success'):
             response.success = False
-            response.message = 'busy: pulse in progress'
+            response.message = 'busy: %s' % self._state
             return response
 
         if self._latest_recognition is None:
@@ -176,56 +251,74 @@ class LateralPidNode(Node):
 
         best = min(targets, key=lambda t: abs(float(t.get('x_m', 0.0))))
         self._target_id = int(best.get('id', -1))
-        target_x = float(best['x_m'])
-        error_m = 0.0 - target_x
+        dx_m = float(best['x_m'])
+        dy_m = float(best['y_m'])
+        error_x = 0.0 - dx_m
+        error_y = 0.0 - dy_m
 
-        deadband = float(self.get_parameter('deadband_m').value)
-        if abs(target_x) <= deadband:
+        db_x = float(self.get_parameter('deadband_x_m').value)
+        db_y = float(self.get_parameter('deadband_y_m').value)
+
+        if abs(dx_m) <= db_x and abs(dy_m) <= db_y:
             self._reset()
-            self._last_x_m = target_x
-            self._last_error_m = error_m
+            self._last_x_m = dx_m
+            self._last_y_m = dy_m
+            self._last_error_x_m = error_x
+            self._last_error_y_m = error_y
             self.get_logger().info(
-                'Target %d already centred (x=%.4f m, deadband %.4f m)'
-                % (self._target_id, target_x, deadband)
+                'Target %d already in position (x=%.4f, |y|=%.4f)'
+                % (self._target_id, dx_m, abs(dy_m))
             )
             response.success = True
             response.message = (
-                'target %d already at x=%.4f m (within deadband)'
-                % (self._target_id, target_x)
+                'target %d already at x=%.4f m, |y|=%.4f m (within deadbands)'
+                % (self._target_id, dx_m, abs(dy_m))
             )
             return response
 
-        self._pid.reset()
-        command_mps = self._pid.update(error_m, 0.0)
+        self._pid_x.reset()
+        self._pid_y.reset()
+        forward = self._pid_y.update(error_y, 0.0)
+        lateral = self._pid_x.update(error_x, 0.0)
 
-        self._state = 'pulsing'
-        self._last_x_m = target_x
-        self._last_error_m = error_m
-        self._last_command_mps = command_mps
-        self._pulse_start_time = time.monotonic()
-        hold_s = float(self.get_parameter('command_hold_s').value)
+        self._state = 'approaching'
+        self._last_x_m = dx_m
+        self._last_y_m = dy_m
+        self._last_error_x_m = error_x
+        self._last_error_y_m = error_y
+        self._last_forward_mps = forward
+        self._last_lateral_mps = lateral
+        self._approach_start_time = time.monotonic()
+        timeout_s = float(self.get_parameter('approach_timeout_s').value)
 
         self.get_logger().info(
-            'Trigger: target %d x=%.4f m error=%.4f m speed=%.4f m/s hold=%.2f s'
-            % (self._target_id, target_x, error_m, command_mps, hold_s)
+            'Trigger: target %d x=%.4f y=%.4f |y|=%.4f'
+            ' fwd=%.4f lat=%.4f m/s timeout=%.1f s'
+            % (
+                self._target_id, dx_m, dy_m, abs(dy_m),
+                forward, lateral, timeout_s,
+            )
         )
         response.success = True
         response.message = (
-            'pulse target %d (x=%.4f m, speed=%.4f m/s, hold=%.2f s)'
-            % (self._target_id, target_x, command_mps, hold_s)
+            'approaching target %d (x=%.4f, |y|=%.4f, fwd=%.4f, lat=%.4f m/s)'
+            % (self._target_id, dx_m, abs(dy_m), forward, lateral)
         )
         return response
 
     def _publish(self) -> None:
         now = time.monotonic()
 
-        if self._state == 'pulsing':
-            hold_s = float(self.get_parameter('command_hold_s').value)
+        if self._state == 'approaching':
+            timeout_s = float(self.get_parameter('approach_timeout_s').value)
             if (
-                self._pulse_start_time is not None
-                and now - self._pulse_start_time >= hold_s
+                self._approach_start_time is not None
+                and now - self._approach_start_time >= timeout_s
             ):
-                self.get_logger().info('Pulse finished, returning to idle')
+                self.get_logger().info(
+                    'Approach timeout (%.1f s), stopping'
+                    % (now - self._approach_start_time)
+                )
                 self._reset()
 
         self._publish_chassis()

@@ -4,18 +4,20 @@ lateral_pid:
     chassis_topic: /t0x0101_
     status_topic: /lateral_pid/status
 
-    # Position outer-loop PID: X error [m] -> lateral speed [m/s].
+    # Position outer-loop PID: position error [m] -> speed [m/s].
     kp: 0.2
     ki: 0.0
     kd: 0.02
     maximum_speed_mps: 0.1
-    minimum_speed_mps: 0.02
+    minimum_speed_mps: 0.03
     integral_limit_m_s: 0.05
-    deadband_m: 0.005
+    deadband_x_m: 0.005
+    deadband_y_m: 0.1
     derivative_filter: 0.7
 
-    # Change to -1.0 if positive speed moves the target away from X=0.
-    direction_sign: 1.0
-    # Duration of the single velocity pulse after each trigger [s].
-    command_hold_s: 0.5
-    publish_rate_hz: 20.0
+    # Direction signs; set to -1.0 to invert.
+    direction_sign_x: 1.0
+    direction_sign_y: 1.0
+    # Maximum approach duration after trigger [s].
+    approach_timeout_s: 3.0
+    publish_rate_hz: 100.0
