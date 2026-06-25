@@ -16,6 +16,8 @@
 - 5 个或 6 个目标按 X 递增稳定编号
 - rosbag 离线分析、JSON 结果保存和 RViz 可视化
 - X 位置外环 PID，输出 `/cmd_vel` 与标量速度
+- 触发式横向单脉冲 PID，输出 `/t0x0101_` 底盘控制指令
+- ARES R2 Tool 对接机构 ROS2 控制封装（`README_CONTROL.md`）
 - 10 组真实 MCAP rosbag、真值表和实验媒体
 
 ## 当前结果
@@ -45,6 +47,8 @@ flowchart LR
     F --> G[目标 X / Y 与 JSON]
     G --> H[X 位置 PID]
     H --> I["/cmd_vel 或 /spear_pid/speed_mps"]
+    G --> J[横向单脉冲 PID]
+    J --> K["/t0x0101_ 底盘横向"]
 ```
 
 ## 仓库结构
@@ -208,6 +212,55 @@ ros2 launch spear_locator position_pid.launch.py \
 ```
 
 默认最大速度为 `0.01 m/s`，每次新测量只保持 0.5 秒；识别失败或超时会自动归零。实际连接运动机构前请阅读 [PID 安全说明](docs/pid-control.md)。
+
+## 横向单脉冲 PID
+
+触发式横向控制，每次触发选择 X 最接近 0 的矛头，发出一个固定时长（默认 0.5s）的横向速度脉冲。
+
+启动节点：
+
+```bash
+ros2 launch spear_locator lateral_pid.launch.py
+```
+
+**预览（不实际驱动）：**
+
+```bash
+python3 scripts/check_lateral_pid.py
+```
+
+输出所有目标位置、自动选择的最近目标、以及触发后实际会发送的速度指令。
+
+**触发一次脉冲：**
+
+```bash
+python3 scripts/trigger_lateral_pid.py
+```
+
+查看状态：
+
+```bash
+ros2 topic echo /lateral_pid/status
+```
+
+**关键参数（`config/lateral_pid.yaml`）：**
+
+| 参数 | 默认值 | 说明 |
+|---|---|---|
+| `kp` | 0.2 | 比例增益 |
+| `minimum_speed_mps` | 0.02 | 底盘最小响应速度 |
+| `maximum_speed_mps` | 0.1 | 最大安全速度 |
+| `deadband_m` | 0.005 | X 位置死区 |
+| `command_hold_s` | 0.5 | 单次脉冲时长 |
+| `direction_sign` | 1.0 | 方向符号，设为 -1 反转 |
+
+**工作流程：**
+
+```
+IDLE ──(trigger)──> 选 |X| 最小目标 → PID 计算速度 → 发脉冲 0.5s → 归零 → IDLE
+```
+
+每次触发只执行一次脉冲，需多次触发逐步收敛。可用 `check_lateral_pid.py` 先预览再触发。
 
 ## 数据集
 
