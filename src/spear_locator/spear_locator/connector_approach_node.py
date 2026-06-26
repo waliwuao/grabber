@@ -6,10 +6,11 @@ Two independent triggers:
 """
 
 import json
+import threading
 import time
 
 import rclpy
-from rclpy.executors import ExternalShutdownException
+from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
 from std_msgs.msg import Float32MultiArray, String
 from std_srvs.srv import Trigger
@@ -140,23 +141,22 @@ class ConnectorApproachNode(Node):
         req.action = 'prepare'
         req.args = [offset, 0.0, 0.0, 0.0]
 
-        timeout_s = (
-            float(self.get_parameter('prepare_timeout_ms').value) / 1000.0
-        )
         future = self._tool_client.call_async(req)
-        rclpy.spin_until_future_complete(self, future, timeout_sec=timeout_s)
 
-        if future.done() and future.result() is not None:
-            result = future.result()
-            if result.success:
-                self.get_logger().info('Init prepare completed')
+        def _done(fut) -> None:
+            if fut.result() is not None:
+                r = fut.result()
+                if r.success:
+                    self.get_logger().info('Init prepare completed')
+                else:
+                    self.get_logger().warn(
+                        'Init prepare failed: ret=%d msg="%s"'
+                        % (r.ret, r.message)
+                    )
             else:
-                self.get_logger().warn(
-                    'Init prepare failed: ret=%d msg="%s"'
-                    % (result.ret, result.message)
-                )
-        else:
-            self.get_logger().error('Init prepare timed out')
+                self.get_logger().error('Init prepare: future resolved with no result')
+
+        future.add_done_callback(_done)
 
     def _recognition_callback(self, message: String) -> None:
         try:
@@ -237,21 +237,37 @@ class ConnectorApproachNode(Node):
             float(self.get_parameter('prepare_timeout_ms').value) / 1000.0
         )
         future = self._tool_client.call_async(req)
-        rclpy.spin_until_future_complete(self, future, timeout_sec=timeout_s)
 
-        self._state = 'idle'
-        if future.done() and future.result() is not None:
-            result = future.result()
-            response.success = result.success
-            response.message = result.message
-            if result.success:
-                self.get_logger().info('Prepare completed')
+        done_event = threading.Event()
+        result_success = False
+        result_message = ''
+
+        def _on_done(fut) -> None:
+            nonlocal result_success, result_message
+            if fut.result() is not None:
+                r = fut.result()
+                result_success = r.success
+                result_message = r.message
+                if r.success:
+                    self.get_logger().info('Prepare completed')
+                else:
+                    self.get_logger().warn(
+                        'Prepare failed: ret=%d msg="%s"'
+                        % (r.ret, r.message)
+                    )
             else:
-                self.get_logger().warn(
-                    'Prepare failed: ret=%d msg="%s"'
-                    % (result.ret, result.message)
-                )
+                result_message = 'prepare future resolved with no result'
+                self.get_logger().error(result_message)
+            done_event.set()
+
+        future.add_done_callback(_on_done)
+
+        if done_event.wait(timeout=timeout_s):
+            self._state = 'idle'
+            response.success = result_success
+            response.message = result_message
         else:
+            self._state = 'idle'
             response.success = False
             response.message = 'prepare timed out (%.1f s)' % timeout_s
             self.get_logger().error(response.message)
@@ -386,8 +402,10 @@ class ConnectorApproachNode(Node):
 def main(args=None) -> None:
     rclpy.init(args=args)
     node = ConnectorApproachNode()
+    executor = MultiThreadedExecutor()
+    executor.add_node(node)
     try:
-        rclpy.spin(node)
+        executor.spin()
     except KeyboardInterrupt:
         if rclpy.ok():
             node._reset()
@@ -395,6 +413,7 @@ def main(args=None) -> None:
     except ExternalShutdownException:
         pass
     finally:
+        executor.shutdown()
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
