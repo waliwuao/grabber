@@ -1,7 +1,7 @@
 lateral_pid:
   ros__parameters:
     result_topic: /spear_recognition/result
-    chassis_topic: /t0x0111_
+    chassis_topic: /t0x0101_
     status_topic: /lateral_pid/status
 
     # Position outer-loop PID: position error [m] -> speed [m/s].
