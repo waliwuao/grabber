@@ -20,6 +20,8 @@
 #ifndef __LINUX_SERIAL_PORT_H__
 #define __LINUX_SERIAL_PORT_H__
 
+#include <linux/types.h>
+
 #include <inttypes.h>
 #include <errno.h>
 #include <fcntl.h>

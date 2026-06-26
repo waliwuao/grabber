@@ -39,7 +39,7 @@ class LateralPidNode(Node):
 
         self.declare_parameter('direction_sign_x', 1.0)
         self.declare_parameter('direction_sign_y', 1.0)
-        self.declare_parameter('approach_timeout_s', 3.0)
+        self.declare_parameter('approach_timeout_s', 5.0)
         self.declare_parameter('publish_rate_hz', 100.0)
 
         def _make_config(deadband_m: float) -> PositionPidConfig:
@@ -78,6 +78,7 @@ class LateralPidNode(Node):
         self._last_forward_mps = 0.0
         self._last_lateral_mps = 0.0
         self._approach_start_time: float | None = None
+        self._last_measurement_time: float | None = None
         self._latest_recognition: dict | None = None
 
         self._chassis_pub = self.create_publisher(
@@ -160,6 +161,7 @@ class LateralPidNode(Node):
         self._last_error_x_m = None
         self._last_error_y_m = None
         self._approach_start_time = None
+        self._last_measurement_time = None
         self._pid_x.reset()
         self._pid_y.reset()
 
@@ -199,9 +201,9 @@ class LateralPidNode(Node):
         error_y = 0.0 - dy_m
 
         dt_s = 0.0
-        if self._approach_start_time is not None:
-            dt_s = now - self._approach_start_time
-        self._approach_start_time = now
+        if self._last_measurement_time is not None:
+            dt_s = now - self._last_measurement_time
+        self._last_measurement_time = now
 
         forward = self._pid_y.update(error_y, dt_s)
         lateral = self._pid_x.update(error_x, dt_s)
@@ -289,6 +291,7 @@ class LateralPidNode(Node):
         self._last_forward_mps = forward
         self._last_lateral_mps = lateral
         self._approach_start_time = time.monotonic()
+        self._last_measurement_time = time.monotonic()
         timeout_s = float(self.get_parameter('approach_timeout_s').value)
 
         self.get_logger().info(

@@ -24,7 +24,7 @@ spear_recognition:
 
     # The final rack always contains six approximately equally spaced targets.
     expected_count: 6
-    window_frames: 30
+    window_frames: 10
     grid_resolution_m: 0.005
     minimum_occupancy: 0.15
     maximum_component_span_m: 0.12

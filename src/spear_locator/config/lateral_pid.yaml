@@ -19,5 +19,5 @@ lateral_pid:
     direction_sign_x: 1.0
     direction_sign_y: 1.0
     # Maximum approach duration after trigger [s].
-    approach_timeout_s: 3.0
+    approach_timeout_s: 5.0
     publish_rate_hz: 100.0
