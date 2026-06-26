@@ -1,8 +1,8 @@
-"""Trigger-based approach control node.
+"""Trigger-based open-loop two-phase approach node.
 
 Subscribes to spear recognition results, waits for a trigger service,
-picks the target whose X is closest to 0. Phase 1 aligns X laterally,
-phase 2 drives forward to reduce |Y| below the deadband.
+picks the target whose X is closest to 0. Phase 1 moves laterally at
+minimum speed for the computed duration, phase 2 moves forward likewise.
 """
 
 import json
@@ -14,11 +14,9 @@ from rclpy.node import Node
 from std_msgs.msg import Float32MultiArray, String
 from std_srvs.srv import Trigger
 
-from .position_pid import PositionPid, PositionPidConfig
-
 
 class LateralPidNode(Node):
-    """Trigger-based two-phase X/Y approach controller for spear target."""
+    """Trigger-based open-loop two-phase approach controller."""
 
     def __init__(self) -> None:
         super().__init__('lateral_pid')
@@ -27,59 +25,26 @@ class LateralPidNode(Node):
         self.declare_parameter('chassis_topic', '/t0x0101_')
         self.declare_parameter('status_topic', '/lateral_pid/status')
 
-        self.declare_parameter('kp', 0.2)
-        self.declare_parameter('ki', 0.0)
-        self.declare_parameter('kd', 0.02)
-        self.declare_parameter('maximum_speed_mps', 0.1)
         self.declare_parameter('minimum_speed_mps', 0.03)
-        self.declare_parameter('integral_limit_m_s', 0.05)
+        self.declare_parameter('maximum_speed_mps', 0.1)
         self.declare_parameter('deadband_x_m', 0.005)
         self.declare_parameter('deadband_y_m', 0.1)
-        self.declare_parameter('derivative_filter', 0.7)
 
         self.declare_parameter('direction_sign_x', 1.0)
         self.declare_parameter('direction_sign_y', 1.0)
         self.declare_parameter('approach_timeout_s', 5.0)
         self.declare_parameter('publish_rate_hz', 100.0)
 
-        def _make_config(deadband_m: float) -> PositionPidConfig:
-            return PositionPidConfig(
-                kp=float(self.get_parameter('kp').value),
-                ki=float(self.get_parameter('ki').value),
-                kd=float(self.get_parameter('kd').value),
-                maximum_speed_mps=float(
-                    self.get_parameter('maximum_speed_mps').value
-                ),
-                minimum_speed_mps=float(
-                    self.get_parameter('minimum_speed_mps').value
-                ),
-                integral_limit_m_s=float(
-                    self.get_parameter('integral_limit_m_s').value
-                ),
-                deadband_m=deadband_m,
-                derivative_filter=float(
-                    self.get_parameter('derivative_filter').value
-                ),
-            )
-
-        self._pid_x = PositionPid(
-            _make_config(float(self.get_parameter('deadband_x_m').value))
-        )
-        self._pid_y = PositionPid(
-            _make_config(float(self.get_parameter('deadband_y_m').value))
-        )
-
         self._state = 'idle'
         self._phase = 'align_x'
         self._target_id: int | None = None
         self._last_x_m: float | None = None
         self._last_y_m: float | None = None
-        self._last_error_x_m: float | None = None
-        self._last_error_y_m: float | None = None
         self._last_forward_mps = 0.0
         self._last_lateral_mps = 0.0
+        self._phase_start_time: float | None = None
+        self._phase_duration_s: float = 0.0
         self._approach_start_time: float | None = None
-        self._last_measurement_time: float | None = None
         self._latest_recognition: dict | None = None
 
         self._chassis_pub = self.create_publisher(
@@ -110,9 +75,8 @@ class LateralPidNode(Node):
         self._timer = self.create_timer(1.0 / rate_hz, self._publish)
 
         self.get_logger().info(
-            'Two-phase PID ready (state=%s, dx=%.4f m, dy=%.4f m, timeout=%.1f s)'
+            'Open-loop two-phase ready (dx=%.4f m, dy=%.4f m, timeout=%.1f s)'
             % (
-                self._state,
                 float(self.get_parameter('deadband_x_m').value),
                 float(self.get_parameter('deadband_y_m').value),
                 float(self.get_parameter('approach_timeout_s').value),
@@ -128,8 +92,6 @@ class LateralPidNode(Node):
                 'target_id': self._target_id,
                 'current_x_m': self._last_x_m,
                 'current_y_m': self._last_y_m,
-                'error_x_m': self._last_error_x_m,
-                'error_y_m': self._last_error_y_m,
                 'forward_mps': self._last_forward_mps,
                 'lateral_mps': self._last_lateral_mps,
                 'deadband_x_m': float(
@@ -138,7 +100,13 @@ class LateralPidNode(Node):
                 'deadband_y_m': float(
                     self.get_parameter('deadband_y_m').value
                 ),
-                'elapsed_s': (
+                'phase_elapsed_s': (
+                    time.monotonic() - self._phase_start_time
+                    if self._phase_start_time is not None
+                    else 0.0
+                ),
+                'phase_duration_s': self._phase_duration_s,
+                'total_elapsed_s': (
                     time.monotonic() - self._approach_start_time
                     if self._approach_start_time is not None
                     else 0.0
@@ -150,10 +118,14 @@ class LateralPidNode(Node):
 
     def _publish_chassis(self) -> None:
         msg = Float32MultiArray()
-        sx = float(self.get_parameter('direction_sign_x').value)
-        sy = float(self.get_parameter('direction_sign_y').value)
-        fwd = 0.0 if self._phase == 'align_x' else self._last_forward_mps
-        msg.data = [sy * fwd, sx * self._last_lateral_mps, 0.0]
+        if self._state != 'approaching':
+            msg.data = [0.0, 0.0, 0.0]
+        else:
+            sx = float(self.get_parameter('direction_sign_x').value)
+            sy = float(self.get_parameter('direction_sign_y').value)
+            fwd = self._last_forward_mps if self._phase == 'approach_y' else 0.0
+            lat = self._last_lateral_mps if self._phase == 'align_x' else 0.0
+            msg.data = [sy * fwd, sx * lat, 0.0]
         self._chassis_pub.publish(msg)
 
     def _reset(self) -> None:
@@ -162,92 +134,30 @@ class LateralPidNode(Node):
         self._last_forward_mps = 0.0
         self._last_lateral_mps = 0.0
         self._target_id = None
-        self._last_error_x_m = None
-        self._last_error_y_m = None
+        self._phase_start_time = None
+        self._phase_duration_s = 0.0
         self._approach_start_time = None
-        self._last_measurement_time = None
-        self._pid_x.reset()
-        self._pid_y.reset()
-
-    def _update_from_target(self, dx_m: float, dy_m: float, dt_s: float) -> None:
-        error_x = 0.0 - dx_m
-        error_y = 0.0 - dy_m
-        db_x = float(self.get_parameter('deadband_x_m').value)
-        db_y = float(self.get_parameter('deadband_y_m').value)
-
-        if self._phase == 'align_x':
-            lateral = self._pid_x.update(error_x, dt_s)
-            forward = 0.0
-            self._last_forward_mps = 0.0
-            self._last_lateral_mps = lateral
-
-            if lateral == 0.0:
-                self._phase = 'approach_y'
-                self._pid_y.reset()
-                forward = self._pid_y.update(error_y, 0.0)
-                lateral = self._pid_x.update(error_x, 0.0)
-                self._last_forward_mps = forward
-                self._last_lateral_mps = lateral
-                self.get_logger().info(
-                    'X aligned (x=%.4f m), switching to Y approach'
-                    % dx_m
-                )
-        else:
-            lateral = self._pid_x.update(error_x, dt_s)
-            forward = self._pid_y.update(error_y, dt_s)
-            self._last_forward_mps = forward
-            self._last_lateral_mps = lateral
-
-            if forward == 0.0 and lateral == 0.0:
-                self.get_logger().info(
-                    'Target %d reached (x=%.4f m, y=%.4f m)'
-                    % (self._target_id, dx_m, dy_m)
-                )
-                self._state = 'success'
-                return
-
-        self._last_x_m = dx_m
-        self._last_y_m = dy_m
-        self._last_error_x_m = error_x
-        self._last_error_y_m = error_y
 
     def _recognition_callback(self, message: String) -> None:
         try:
-            payload = json.loads(message.data)
+            self._latest_recognition = json.loads(message.data)
         except (TypeError, json.JSONDecodeError):
-            return
-        self._latest_recognition = payload
+            pass
 
-        if self._state != 'approaching':
-            return
-
-        if payload.get('status') != 'recognized':
-            self.get_logger().warn('Recognition lost during approach, stopping')
-            self._reset()
-            return
-
-        target = next(
-            (
-                item for item in payload.get('targets', [])
-                if int(item.get('id', -1)) == self._target_id
-            ),
-            None,
-        )
-        if target is None or 'x_m' not in target or 'y_m' not in target:
-            self.get_logger().warn(
-                'Target %d disappeared during approach, stopping' % self._target_id
-            )
-            self._reset()
-            return
-
-        now = time.monotonic()
-        dt_s = 0.0
-        if self._last_measurement_time is not None:
-            dt_s = now - self._last_measurement_time
-        self._last_measurement_time = now
-
-        self._update_from_target(
-            float(target['x_m']), float(target['y_m']), dt_s
+    def _start_phase(self, phase: str, error_m: float) -> None:
+        min_s = float(self.get_parameter('minimum_speed_mps').value)
+        self._phase = phase
+        self._phase_start_time = time.monotonic()
+        self._phase_duration_s = abs(error_m) / min_s
+        if phase == 'align_x':
+            self._last_lateral_mps = min_s if error_m > 0 else -min_s
+            self._last_forward_mps = 0.0
+        else:
+            self._last_lateral_mps = 0.0
+            self._last_forward_mps = min_s if error_m > 0 else -min_s
+        self.get_logger().info(
+            'Phase %s: error=%.4f m speed=%.4f m/s duration=%.3f s'
+            % (phase, error_m, min_s, self._phase_duration_s)
         )
 
     def _trigger_callback(
@@ -255,7 +165,7 @@ class LateralPidNode(Node):
         request: Trigger.Request,
         response: Trigger.Response,
     ) -> Trigger.Response:
-        if self._state in ('approaching', 'success'):
+        if self._state != 'idle':
             response.success = False
             response.message = 'busy: %s' % self._state
             return response
@@ -287,44 +197,32 @@ class LateralPidNode(Node):
         db_x = float(self.get_parameter('deadband_x_m').value)
         db_y = float(self.get_parameter('deadband_y_m').value)
 
+        self._last_x_m = dx_m
+        self._last_y_m = dy_m
+
         if abs(dx_m) <= db_x and abs(dy_m) <= db_y:
             self._reset()
-            self._last_x_m = dx_m
-            self._last_y_m = dy_m
             self.get_logger().info(
                 'Target %d already in position (x=%.4f, |y|=%.4f)'
                 % (self._target_id, dx_m, abs(dy_m))
             )
             response.success = True
-            response.message = (
-                'target %d already at x=%.4f m, |y|=%.4f m'
-                % (self._target_id, dx_m, abs(dy_m))
-            )
+            response.message = 'already in position'
             return response
 
-        self._pid_x.reset()
-        self._pid_y.reset()
         self._state = 'approaching'
-        self._phase = 'align_x'
         self._approach_start_time = time.monotonic()
-        self._last_measurement_time = time.monotonic()
-        self._update_from_target(dx_m, dy_m, 0.0)
-        timeout_s = float(self.get_parameter('approach_timeout_s').value)
 
-        self.get_logger().info(
-            'Trigger: target %d x=%.4f y=%.4f |y|=%.4f'
-            ' phase=%s fwd=%.4f lat=%.4f m/s timeout=%.1f s'
-            % (
-                self._target_id, dx_m, dy_m, abs(dy_m),
-                self._phase, self._last_forward_mps,
-                self._last_lateral_mps, timeout_s,
-            )
-        )
+        if abs(dx_m) > db_x:
+            self._start_phase('align_x', 0.0 - dx_m)
+        else:
+            self.get_logger().info('X already aligned, skipping to Y')
+            self._start_phase('approach_y', 0.0 - dy_m)
+
         response.success = True
         response.message = (
-            'phase %s target %d (x=%.4f, |y|=%.4f, lat=%.4f m/s)'
-            % (self._phase, self._target_id, dx_m, abs(dy_m),
-               self._last_lateral_mps)
+            'phase %s target %d (x=%.4f, |y|=%.4f)'
+            % (self._phase, self._target_id, dx_m, abs(dy_m))
         )
         return response
 
@@ -332,16 +230,36 @@ class LateralPidNode(Node):
         now = time.monotonic()
 
         if self._state == 'approaching':
-            timeout_s = float(self.get_parameter('approach_timeout_s').value)
+            total_timeout = float(self.get_parameter('approach_timeout_s').value)
             if (
                 self._approach_start_time is not None
-                and now - self._approach_start_time >= timeout_s
+                and now - self._approach_start_time >= total_timeout
             ):
                 self.get_logger().info(
-                    'Approach timeout (%.1f s), stopping'
+                    'Total timeout (%.1f s), stopping'
                     % (now - self._approach_start_time)
                 )
                 self._reset()
+
+            elif (
+                self._phase_start_time is not None
+                and now - self._phase_start_time >= self._phase_duration_s
+            ):
+                if self._phase == 'align_x':
+                    self._last_lateral_mps = 0.0
+                    dy = self._last_y_m
+                    error_y = 0.0 - (dy if dy is not None else 0.0)
+                    db_y = float(self.get_parameter('deadband_y_m').value)
+                    if abs(error_y) > db_y:
+                        self._start_phase('approach_y', error_y)
+                    else:
+                        self.get_logger().info('Y already in deadband, done')
+                        self._state = 'success'
+                        self._last_forward_mps = 0.0
+                else:
+                    self._last_forward_mps = 0.0
+                    self.get_logger().info('Both phases completed')
+                    self._state = 'success'
 
         self._publish_chassis()
         self._publish_status()
