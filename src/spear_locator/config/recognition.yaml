@@ -2,7 +2,7 @@ spear_recognition:
   ros__parameters:
     input_topic: /scan
 
-    range_min_m: 0.03
+    range_min_m: 0.05
     range_max_m: 0.43
     # Wide near-field sector: at 50 mm placement the two outer targets lie
     # outside the old -135..-45 degree window.
@@ -10,7 +10,7 @@ spear_recognition:
     angle_max_deg: 170.0
     x_min_m: -0.43
     x_max_m: 0.43
-    y_min_m: 0.02
+    y_min_m: 0.05
     y_max_m: 0.43
 
     # Calibration disabled for front-half testing.
