@@ -1,8 +1,8 @@
-"""Trigger-based open-loop two-phase approach node.
+"""Trigger-based open-loop single-phase approach node.
 
 Subscribes to spear recognition results, waits for a trigger service,
-picks the target whose X is closest to 0. Phase 1 moves laterally at
-minimum speed for the computed duration, phase 2 moves forward likewise.
+picks the target whose X is closest to 0. One trigger call performs
+ONE phase: align X (if needed) or approach Y (if X already aligned).
 """
 
 import json
@@ -67,6 +67,16 @@ class LateralPidNode(Node):
             Trigger,
             '~/trigger',
             self._trigger_callback,
+        )
+        self._trigger_x_srv = self.create_service(
+            Trigger,
+            '~/trigger_x',
+            self._trigger_x_callback,
+        )
+        self._trigger_y_srv = self.create_service(
+            Trigger,
+            '~/trigger_y',
+            self._trigger_y_callback,
         )
 
         rate_hz = float(self.get_parameter('publish_rate_hz').value)
@@ -160,6 +170,28 @@ class LateralPidNode(Node):
             % (phase, error_m, min_s, self._phase_duration_s)
         )
 
+    def _pick_target(self) -> tuple:
+        targets = self._latest_recognition.get('targets', [])
+        best = min(targets, key=lambda t: abs(float(t.get('x_m', 0.0))))
+        tid = int(best.get('id', -1))
+        dx = float(best['x_m'])
+        dy = float(best['y_m'])
+        return tid, dx, dy
+
+    def _trigger_x_callback(
+        self,
+        request: Trigger.Request,
+        response: Trigger.Response,
+    ) -> Trigger.Response:
+        return self._trigger_phase('align_x', response)
+
+    def _trigger_y_callback(
+        self,
+        request: Trigger.Request,
+        response: Trigger.Response,
+    ) -> Trigger.Response:
+        return self._trigger_phase('approach_y', response)
+
     def _trigger_callback(
         self,
         request: Trigger.Request,
@@ -169,43 +201,28 @@ class LateralPidNode(Node):
             response.success = False
             response.message = 'busy: %s' % self._state
             return response
+        return self._auto_trigger(response)
 
+    def _auto_trigger(self, response: Trigger.Response) -> Trigger.Response:
         if self._latest_recognition is None:
             response.success = False
-            response.message = 'no recognition data available yet'
+            response.message = 'no recognition data'
             return response
-
         if self._latest_recognition.get('status') != 'recognized':
             response.success = False
-            response.message = (
-                'recognition status is %s'
-                % self._latest_recognition.get('status', 'unknown')
-            )
+            response.message = 'status: %s' % self._latest_recognition.get('status')
             return response
 
-        targets = self._latest_recognition.get('targets', [])
-        if not targets:
-            response.success = False
-            response.message = 'no targets in recognition result'
-            return response
-
-        best = min(targets, key=lambda t: abs(float(t.get('x_m', 0.0))))
-        self._target_id = int(best.get('id', -1))
-        dx_m = float(best['x_m'])
-        dy_m = float(best['y_m'])
-
+        tid, dx_m, dy_m = self._pick_target()
         db_x = float(self.get_parameter('deadband_x_m').value)
         db_y = float(self.get_parameter('deadband_y_m').value)
 
         self._last_x_m = dx_m
         self._last_y_m = dy_m
+        self._target_id = tid
 
         if abs(dx_m) <= db_x and abs(dy_m) <= db_y:
             self._reset()
-            self.get_logger().info(
-                'Target %d already in position (x=%.4f, |y|=%.4f)'
-                % (self._target_id, dx_m, abs(dy_m))
-            )
             response.success = True
             response.message = 'already in position'
             return response
@@ -216,14 +233,57 @@ class LateralPidNode(Node):
         if abs(dx_m) > db_x:
             self._start_phase('align_x', 0.0 - dx_m)
         else:
-            self.get_logger().info('X already aligned, skipping to Y')
             self._start_phase('approach_y', 0.0 - dy_m)
 
         response.success = True
-        response.message = (
-            'phase %s target %d (x=%.4f, |y|=%.4f)'
-            % (self._phase, self._target_id, dx_m, abs(dy_m))
+        response.message = '%s target %d (x=%.4f, |y|=%.4f)' % (
+            self._phase, tid, dx_m, abs(dy_m),
         )
+        return response
+
+    def _trigger_phase(
+        self, phase: str, response: Trigger.Response
+    ) -> Trigger.Response:
+        if self._state != 'idle':
+            response.success = False
+            response.message = 'busy: %s' % self._state
+            return response
+        if self._latest_recognition is None:
+            response.success = False
+            response.message = 'no recognition data'
+            return response
+        if self._latest_recognition.get('status') != 'recognized':
+            response.success = False
+            response.message = 'status: %s' % self._latest_recognition.get('status')
+            return response
+
+        tid, dx_m, dy_m = self._pick_target()
+        db_x = float(self.get_parameter('deadband_x_m').value)
+        db_y = float(self.get_parameter('deadband_y_m').value)
+
+        self._last_x_m = dx_m
+        self._last_y_m = dy_m
+        self._target_id = tid
+
+        if phase == 'align_x':
+            error = 0.0 - dx_m
+            deadband = db_x
+        else:
+            error = 0.0 - dy_m
+            deadband = db_y
+
+        if abs(error) <= deadband:
+            self._reset()
+            response.success = True
+            response.message = '%s already within deadband' % phase
+            return response
+
+        self._state = 'approaching'
+        self._approach_start_time = time.monotonic()
+        self._start_phase(phase, error)
+
+        response.success = True
+        response.message = '%s target %d (error=%.4f m)' % (phase, tid, error)
         return response
 
     def _publish(self) -> None:
@@ -245,21 +305,10 @@ class LateralPidNode(Node):
                 self._phase_start_time is not None
                 and now - self._phase_start_time >= self._phase_duration_s
             ):
-                if self._phase == 'align_x':
-                    self._last_lateral_mps = 0.0
-                    dy = self._last_y_m
-                    error_y = 0.0 - (dy if dy is not None else 0.0)
-                    db_y = float(self.get_parameter('deadband_y_m').value)
-                    if abs(error_y) > db_y:
-                        self._start_phase('approach_y', error_y)
-                    else:
-                        self.get_logger().info('Y already in deadband, done')
-                        self._state = 'success'
-                        self._last_forward_mps = 0.0
-                else:
-                    self._last_forward_mps = 0.0
-                    self.get_logger().info('Both phases completed')
-                    self._state = 'success'
+                self.get_logger().info('Phase %s completed' % self._phase)
+                self._last_lateral_mps = 0.0
+                self._last_forward_mps = 0.0
+                self._state = 'success'
 
         self._publish_chassis()
         self._publish_status()
