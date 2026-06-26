@@ -26,6 +26,7 @@ setup(
     entry_points={
         'console_scripts': [
             'analyze_bag = spear_locator.analyze_bag:main',
+            'connector_approach_node = spear_locator.connector_approach_node:main',
             'exam_answer_node = spear_locator.exam_answer_node:main',
             'spear_locator_node = spear_locator.ros_node:main',
             'lateral_pid_node = spear_locator.lateral_pid_node:main',
