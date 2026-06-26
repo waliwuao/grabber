@@ -5,11 +5,11 @@ lateral_pid:
     status_topic: /lateral_pid/status
 
     # Position outer-loop PID: position error [m] -> speed [m/s].
-    kp: 0.2
+    kp: 0.5
     ki: 0.0
     kd: 0.02
-    maximum_speed_mps: 0.1
-    minimum_speed_mps: 0.03
+    maximum_speed_mps: 0.3
+    minimum_speed_mps: 0.1
     integral_limit_m_s: 0.05
     deadband_x_m: 0.005
     deadband_y_m: 0.1
