@@ -7,10 +7,10 @@ connector_approach_node:
 
     # X-error (m) -> prepare length (m): length = direction_sign_x * x_error + prepare_offset_m
     prepare_offset_m: 0.3
-    direction_sign_x: 1.0
+    direction_sign_x: -1.0
 
     # Chassis forward direction sign; set to -1.0 to invert.
-    direction_sign_y: 1.0
+    direction_sign_y: -1.0
 
     deadband_x_m: 0.005
     deadband_y_m: 0.03
