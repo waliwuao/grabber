@@ -7,8 +7,8 @@ spear_locator:
     range_min_m: 0.03
     range_max_m: 0.43
     # Measure on the green negative axis (-Y), with a 90-degree sector.
-    angle_min_deg: -170.0
-    angle_max_deg: -10.0
+    angle_min_deg: 170.0
+    angle_max_deg: 10.0
 
     # Cartesian ROI: targets are on -Y and arranged along the red X axis.
     x_min_m: -0.43
